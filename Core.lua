@@ -449,6 +449,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("UNIT_SPELLCAST_SENT")
 events:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+events:RegisterEvent("LOOT_READY")
 events:RegisterEvent("LOOT_OPENED")
 events:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
@@ -488,9 +489,9 @@ events:SetScript("OnEvent", function(_, event, ...)
     if continent then AddSighting(continent, x, y, name, category, true, (IsIndoors and IsIndoors()) and true or false) end
     lastGather = { name = name, time = GetTime() }
     if ns.OnGathered then ns.OnGathered(name, continent, x, y) end
-  elseif event == "LOOT_OPENED" then
+  elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
     -- For nodes we didn't know, use the icon of what they gave.
-    if lastGather and GetTime() - lastGather.time < 5 then
+    if lastGather and GetTime() - lastGather.time < 5 and (not GetNumLootItems or GetNumLootItems() > 0) then
       local name = lastGather.name
       lastGather = nil
       if ns.OnGatherLoot then ns.OnGatherLoot(name) end

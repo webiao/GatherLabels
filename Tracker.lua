@@ -162,11 +162,24 @@ local function Refresh()
   local hours = elapsed / 3600
   panel.time:SetText("Time: |cffffffff" .. Duration(elapsed) .. "|r"
     .. (Started() and "" or "  |cff888888(starts at your first node)|r"))
-  local nodes = "Nodes: |cffffffff" .. session.nodes .. "|r"
-  if elapsed >= 60 and session.nodes > 0 then
-    nodes = nodes .. string.format("  |cffaaaaaa(%d an hour)|r", session.nodes / hours)
+  local nodes
+  if session.nodes == 0 and session.catches > 0 then
+    nodes = "Fish caught: |cffffffff" .. session.catches .. "|r"
+    if elapsed >= 60 then
+      nodes = nodes .. string.format("  |cffaaaaaa(%d an hour)|r", session.catches / hours)
+    end
+  else
+    nodes = "Nodes: |cffffffff" .. session.nodes .. "|r"
+    if elapsed >= 60 and session.nodes > 0 then
+      nodes = nodes .. string.format("  |cffaaaaaa(%d an hour)|r", session.nodes / hours)
+    end
+    if session.catches > 0 then
+      nodes = nodes .. "\nFish caught: |cffffffff" .. session.catches .. "|r"
+      if elapsed >= 60 then
+        nodes = nodes .. string.format("  |cffaaaaaa(%d an hour)|r", session.catches / hours)
+      end
+    end
   end
-  if session.catches > 0 then nodes = nodes .. "   Fish caught: |cffffffff" .. session.catches .. "|r" end
   panel.nodes:SetText(nodes)
 
   -- Prices are looked up only when the loot changes, or once a minute.
@@ -204,7 +217,8 @@ local function Refresh()
   panel.more:ClearAllPoints()
   panel.more:SetPoint("TOPLEFT", panel.value, "BOTTOMLEFT", 0, -6 - shown * 17)
   panel.more:SetText(#items > MAX_ITEMS and ("and " .. (#items - MAX_ITEMS) .. " more") or "")
-  panel:SetHeight(92 + panel.value:GetStringHeight() + shown * 17 + (#items > MAX_ITEMS and 14 or 0))
+  local nodesExtra = math.max(0, (panel.nodes:GetStringHeight() or 12) - 12)
+  panel:SetHeight(92 + nodesExtra + panel.value:GetStringHeight() + shown * 17 + (#items > MAX_ITEMS and 14 or 0))
 end
 
 local function PlacePanel()
@@ -248,7 +262,8 @@ function ns.OnGathered(name, continent, x, y)
 end
 
 local function CountLootInner()
-  for slot = 1, GetNumLootItems() do
+  local count = (GetNumLootItems and GetNumLootItems()) or 0
+  for slot = 1, count do
     local link = GetLootSlotLink(slot)
     local id = type(link) == "string" and tonumber(link:match("item:(%d+)"))
     if id then
@@ -289,27 +304,45 @@ local function ReadIsFishingLoot()
   return IsFishingLoot and IsFishingLoot()
 end
 
+local fishingLootDone = false
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_LOGOUT")
+events:RegisterEvent("LOOT_READY")
 events:RegisterEvent("LOOT_OPENED")
-events:SetScript("OnEvent", function(_, event)
+events:RegisterEvent("LOOT_CLOSED")
+events:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+events:SetScript("OnEvent", function(_, event, arg1)
   if event == "PLAYER_LOGIN" then
     ns.db.session = ns.db.session or NewSession()
     session = ns.db.session
+    session.elapsed = session.elapsed or 0
+    session.nodes = session.nodes or 0
+    session.catches = session.catches or 0
+    session.loot = session.loot or {}
+    session.order = session.order or {}
     if Started() then runningSince = GetTime() end
     UpdateShown()
   elseif event == "PLAYER_LOGOUT" and session then
     -- Save the clock (also on /reload).
     session.elapsed = Elapsed()
     runningSince = nil
-  elseif event == "LOOT_OPENED" and session then
-    -- Fish count too.
+  elseif event == "LOOT_CLOSED" then
+    fishingLootDone = false
+  elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
+    if arg1 == "player" then fishingLootDone = false end
+  elseif (event == "LOOT_READY" or event == "LOOT_OPENED") and session and not fishingLootDone then
+    -- Fish count too (LOOT_READY handles auto-loot when LOOT_OPENED never fires).
     local ok, fishing = pcall(ReadIsFishingLoot)
     if ok and fishing then
-      session.catches = session.catches + 1
-      runningSince = runningSince or GetTime()
-      CountLoot()
+      local numItems = (GetNumLootItems and GetNumLootItems()) or 0
+      if numItems > 0 then
+        fishingLootDone = true
+        session.catches = session.catches + 1
+        runningSince = runningSince or GetTime()
+        CountLoot()
+      end
     end
   end
 end)
