@@ -104,7 +104,8 @@ end
 
 local NAMES = { "SoftTargetInteract", "SoftTargetInteractRange", "SoftTargetInteractArc",
   "SoftTargetInteractOnlyInRange", "SoftTargetInteractRangeIsHard", "SoftTargetNameplateInteract",
-  "SoftTargetIconGameObject", "nameplateGameObjectMaxDistance" }
+  "SoftTargetIconInteract", "SoftTargetIconGameObject", "SoftTargetLowPriorityIcons",
+  "nameplateGameObjectMaxDistance" }
 local LOWER = {}
 for _, n in ipairs(NAMES) do LOWER[n:lower()] = n end
 
@@ -113,6 +114,11 @@ local function GetCV(name)
   local ok, v = pcall(get, name)
   if ok and v ~= nil and not Secret(v) then return tostring(v) end
   return nil
+end
+
+local function SetCV(name, value)
+  local set = (C_CVar and C_CVar.SetCVar) or SetCVar
+  if set then pcall(set, name, value) end
 end
 
 -- This game has close-up targeting at all (not the oldest Classic clients).
@@ -125,14 +131,16 @@ local function Wanted()
   wipe(wanted)
   local db = ns.db
   if not db or not db.glow or ns.GlowBlockedBy() then return wanted end
-  -- 3 = works with mouse and keyboard
-  wanted.SoftTargetInteract = tostring((Enum and Enum.SoftTargetEnableFlags and Enum.SoftTargetEnableFlags.Any) or 3)
+  -- 3 = always active for both Gamepad and Keyboard+Mouse
+  wanted.SoftTargetInteract = "3"
   wanted.SoftTargetInteractRange = tostring(db.glowRange)
   wanted.SoftTargetInteractArc = "2"           -- anywhere around you, no need to face it
   wanted.SoftTargetInteractOnlyInRange = "0"   -- also pick it while it's still out of reach (dim light)
   wanted.SoftTargetInteractRangeIsHard = "0"
   wanted.SoftTargetNameplateInteract = "1"     -- give it a name plate to draw on
+  wanted.SoftTargetIconInteract = "1"          -- required for interact soft-target icons in KBM mode
   wanted.SoftTargetIconGameObject = "1"        -- objects only get that plate with this on
+  wanted.SoftTargetLowPriorityIcons = "1"      -- keep interact objects active in KBM mode
   local far = tonumber(GetCV("nameplateGameObjectMaxDistance") or "")
   if far and far < 60 then wanted.nameplateGameObjectMaxDistance = "60" end
   return wanted
@@ -155,10 +163,10 @@ local function ApplyCVars()
       if want[name] then
         if now ~= want[name] then
           if saved[name] == nil then saved[name] = now end
-          pcall(SetCVar, name, want[name])
+          SetCV(name, want[name])
         end
       elseif saved[name] ~= nil then
-        pcall(SetCVar, name, saved[name])
+        SetCV(name, saved[name])
         saved[name] = nil
       end
     end
@@ -172,7 +180,7 @@ ns.GlowApplyCVars = ApplyCVars
 local function ReturnCVars()
   local saved = ns.db and ns.db.glowCVars
   if type(saved) ~= "table" then return end
-  for name, value in pairs(saved) do pcall(SetCVar, name, value) end
+  for name, value in pairs(saved) do SetCV(name, value) end
   wipe(saved)
 end
 
@@ -755,15 +763,29 @@ local function GameIcon(plate)
   if ok and type(icon) == "table" and icon.SetAlpha then return icon end
 end
 
-local function SoftPlate()
-  if not C_NamePlate or not C_NamePlate.GetNamePlateForUnit then return end
-  local ok, plate = pcall(C_NamePlate.GetNamePlateForUnit, SOFT)
-  if not ok or type(plate) ~= "table" or Secret(plate) then return end
+local activeUnits = {}
+
+local function CheckPlate(plate)
+  if type(plate) ~= "table" or Secret(plate) then return end
   if plate.IsForbidden then
     local okF, forbidden = pcall(plate.IsForbidden, plate)
     if not okF or forbidden then return end
   end
   return plate
+end
+
+local function SoftPlate()
+  if not C_NamePlate or not C_NamePlate.GetNamePlateForUnit then return end
+  local plate = CheckPlate(Read(C_NamePlate.GetNamePlateForUnit, SOFT))
+  if plate then return plate end
+  if UnitIsUnit then
+    for unit in pairs(activeUnits) do
+      if Read(UnitIsUnit, unit, SOFT) == true then
+        plate = CheckPlate(Read(C_NamePlate.GetNamePlateForUnit, unit))
+        if plate then return plate end
+      end
+    end
+  end
 end
 
 ------------------------------------------------------------------------
@@ -944,8 +966,9 @@ local function Show(plate, state)
     RestoreIcon()
     target.plate = plate
     local icon = GameIcon(plate)
+    local iconVis = icon and icon.IsVisible and Read(icon.IsVisible, icon) == true
     glow:ClearAllPoints()
-    local ok = pcall(glow.SetPoint, glow, "CENTER", icon or plate, "CENTER", 0, tonumber(db.glowHeight) or 0)
+    local ok = pcall(glow.SetPoint, glow, "CENTER", (iconVis and icon) or plate, "CENTER", 0, tonumber(db.glowHeight) or 0)
     if not ok then
       Hide()
       return
@@ -1128,10 +1151,15 @@ end
 function ns.GlowDebug()
   local cv = {}
   for _, n in ipairs(NAMES) do cv[#cv + 1] = n:gsub("SoftTarget", ""):gsub("nameplate", "") .. "=" .. tostring(GetCV(n)) end
+  local plate = SoftPlate()
+  local icon = plate and GameIcon(plate)
+  local iconVis = icon and icon.IsVisible and Read(icon.IsVisible, icon) == true
+  local pInfo = plate and (" plate=yes iconVis=" .. (iconVis and "yes" or "no")) or " plate=no"
   ns.Print("glow: " .. (ns.db.glow and "on" or "off")
     .. (ns.GlowBlockedBy() and (", left to " .. ns.GlowBlockedBy()) or "")
     .. (inCombat and ", in combat" or "") .. ". " .. tostring(ns.glowWhy)
-    .. (target.state and (" (" .. target.state .. ")") or ""))
+    .. (target.state and (" (" .. target.state .. ")") or "")
+    .. pInfo)
   ns.Print("game settings: " .. table.concat(cv, " "))
 end
 
@@ -1144,6 +1172,7 @@ local function ReadPlateUnitToken(plate)
 end
 
 local events = CreateFrame("Frame")
+events:RegisterEvent("VARIABLES_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_LOGOUT")
 events:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
@@ -1159,8 +1188,14 @@ events:SetScript("OnEvent", function(_, event, a, b)
   if event == "PLAYER_SOFT_INTERACT_CHANGED" then
     NewTarget(b)
   elseif event == "NAME_PLATE_UNIT_ADDED" then
-    if target.kind and not glow:IsShown() then Refresh() end
+    if type(a) == "string" and not Secret(a) then activeUnits[a] = true end
+    if target.kind and not glow:IsShown() then
+      Refresh()
+    elseif not target.kind and UnitIsUnit and Read(UnitIsUnit, a, SOFT) == true then
+      NewTarget(nil)
+    end
   elseif event == "NAME_PLATE_UNIT_REMOVED" then
+    if type(a) == "string" and not Secret(a) then activeUnits[a] = nil end
     -- That plate may be handed to something else now.
     if target.plate and not preview then
       local ok, token = pcall(ReadPlateUnitToken, target.plate)
@@ -1195,6 +1230,8 @@ events:SetScript("OnEvent", function(_, event, a, b)
         end)
       end
     end
+  elseif event == "VARIABLES_LOADED" then
+    ApplyCVars()
   elseif event == "PLAYER_ENTERING_WORLD" then
     inCombat = (UnitAffectingCombat and Read(UnitAffectingCombat, "player")) == true
     ApplyCVars()
