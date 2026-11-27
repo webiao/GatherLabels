@@ -283,30 +283,33 @@ local function BuildGlowPage(page)
     page.styles[i] = b
   end
 
+  local styleRows = math.ceil(#ns.GLOW_STYLES / 2)
+  local sy = -24 - styleRows * 26 - 26
+
   page.size = S.Slider(page, "Size", RW - 12, 50, 200, 10,
     function(v) return v .. "%" end,
     function(v) if ns.db.glowSize ~= v then ns.Set("glowSize", v) end end)
-  page.size:SetPoint("TOPLEFT", x + 6, -128)
+  page.size:SetPoint("TOPLEFT", x + 6, sy)
   page.height = S.Slider(page, "Height", RW - 12, -80, 60, 5,
     function(v) return (v > 0 and "+" or "") .. v end,
     function(v) if ns.db.glowHeight ~= v then ns.Set("glowHeight", v) end end)
-  page.height:SetPoint("TOPLEFT", x + 6, -184)
+  page.height:SetPoint("TOPLEFT", x + 6, sy - 56)
   S.Tip(page.height, "Height", "Moves the light down onto the ground (minus) or up (plus) from where the game marks the node.")
   page.bright = S.Slider(page, "Brightness", RW - 12, 20, 100, 5,
     function(v) return v .. "%" end,
     function(v) if ns.db.glowBright ~= v then ns.Set("glowBright", v) end end)
-  page.bright:SetPoint("TOPLEFT", x + 6, -240)
+  page.bright:SetPoint("TOPLEFT", x + 6, sy - 112)
   page.reach = S.Slider(page, "Starts to glow from", RW - 12, 5, 15, 1,
     function(v) return v .. " yd" end,
     function(v) if ns.db.glowRange ~= v then ns.Set("glowRange", v) end end)
-  page.reach:SetPoint("TOPLEFT", x + 6, -296)
+  page.reach:SetPoint("TOPLEFT", x + 6, sy - 168)
   S.Tip(page.reach, "Starts to glow from", "How far away a node lights up (dimly, until you're close enough to gather it). The game allows up to 15 yards.")
 
-  local KINDS = { "herb", "ore", "treasure", "bobber" }
+  local KINDS = { "herb", "ore", "treasure", "fish", "bobber" }
   page.previewKind = "herb"
   local preview = S.Button(page, "Preview", 120, "Preview",
     "Shows the glow in the middle of your screen: out of reach, in reach, then grey. Each click shows the next colour.")
-  preview:SetPoint("TOPLEFT", x, -344)
+  preview:SetPoint("TOPLEFT", x, sy - 216)
   preview:SetScript("OnClick", function()
     ns.GlowPreview(page.previewKind)
     for i, k in ipairs(KINDS) do

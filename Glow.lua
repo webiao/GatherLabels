@@ -76,6 +76,7 @@ ns.GLOW_STYLES = {
   { key = "ring", label = "Ground ring", tip = "Two rings of light on the ground around the node, gently pulsing." },
   { key = "embers", label = "Embers", tip = "A low glow with sparks floating up off the node." },
   { key = "aura", label = "Power aura", tip = "Powers up when a node comes into view: the aura bursts up with a shockwave, then burns and surges with crackling energy." },
+  { key = "icon", label = "Icon", tip = "Shows a clean action icon over the node instead of a glow: a plant for herbs, a pickaxe for ore, a hook for fishing and a loot/chest icon for chests." },
 }
 local STYLE_OK = {}
 for _, s in ipairs(ns.GLOW_STYLES) do STYLE_OK[s.key] = true end
@@ -585,16 +586,127 @@ for i = 1, MAX_MOTES do
   art.motes[i] = mote
 end
 
+-- Clean action icon (herb plant, mining pickaxe, fishing hook, chest loot)
+-- instead of a glow: kept outside `pieces` and in BLEND mode so Tint()
+-- never dyes the icon itself. Separate parent frame keeps idle breathing
+-- and the in-reach pop on distinct regions so they never fight or snap.
+art.iconFrame = CreateFrame("Frame", nil, art)
+art.iconFrame:SetSize(40, 40)
+art.iconFrame:SetPoint("CENTER", art, "CENTER", 0, 0)
+art.iconFrame:Hide()
+
+art.actionIcon = art.iconFrame:CreateTexture(nil, "ARTWORK", nil, 4)
+art.actionIcon:SetBlendMode("BLEND")
+art.actionIcon:SetAllPoints(art.iconFrame)
+if art.actionIcon.SetSnapToPixelGrid then
+  art.actionIcon:SetSnapToPixelGrid(false)
+  art.actionIcon:SetTexelSnappingBias(0)
+end
+
+art.iconBob = art.iconFrame:CreateAnimationGroup()
+art.iconBob:SetLooping("BOUNCE")
+Scale(art.iconBob, 0.94, 1.06, 1.1):SetSmoothing("IN_OUT")
+
+art.iconPop = art.actionIcon:CreateAnimationGroup()
+local popUp = Scale(art.iconPop, 1, 1.25, 0.14)
+popUp:SetOrder(1)
+popUp:SetSmoothing("OUT")
+local popDown = Scale(art.iconPop, 1.25, 1, 0.22)
+popDown:SetOrder(2)
+popDown:SetSmoothing("IN_OUT")
+
+local FISH_ICON = {
+  atlases = { "Cursor_FishingCursor_64", "Cursor_FishingCursor_128", "Cursor_Fishing_64", "Cursor_Fishing_128", "Cursor_FishingCursor_32", "Cursor_Fishing_32" },
+  cursors = { "Interface\\Cursor\\FishingCursor", "Interface\\Cursor\\Fishing" },
+  fallback = "Interface\\Icons\\Trade_Fishing",
+}
+local ACTION_ICONS = {
+  herb = {
+    atlases = { "Cursor_GatherHerbs_64", "Cursor_GatherHerbs_128", "Cursor_GatherHerbs_32" },
+    cursors = { "Interface\\Cursor\\GatherHerbs" },
+    fallback = "Interface\\Icons\\Trade_Herbalism",
+  },
+  ore = {
+    atlases = { "Cursor_Mine_64", "Cursor_Mine_128", "Cursor_Mine_32" },
+    cursors = { "Interface\\Cursor\\Mine" },
+    fallback = "Interface\\Icons\\Trade_Mining",
+  },
+  fish = FISH_ICON,
+  bobber = FISH_ICON,
+  treasure = {
+    atlases = { "Cursor_LootAll_64", "Cursor_LootAll_128", "Cursor_Pickup_64", "Cursor_Interact_64", "Cursor_LootAll_32" },
+    cursors = { "Interface\\Cursor\\LootAll", "Interface\\Cursor\\Pickup", "Interface\\Cursor\\Interact" },
+    fallback = "Interface\\Icons\\INV_Box_02",
+  },
+}
+
+local resolvedActionIcon = {}
+local function ResolveActionIcon(kind)
+  if resolvedActionIcon[kind] then return resolvedActionIcon[kind] end
+  local def = ACTION_ICONS[kind] or ACTION_ICONS.herb
+  if C_Texture and C_Texture.GetAtlasInfo then
+    for _, atlas in ipairs(def.atlases) do
+      local ok, info = pcall(C_Texture.GetAtlasInfo, atlas)
+      if ok and info then
+        resolvedActionIcon[kind] = { atlas = atlas }
+        return resolvedActionIcon[kind]
+      end
+    end
+  end
+  if GetFileIDFromPath then
+    for _, path in ipairs(def.cursors) do
+      local id = Read(GetFileIDFromPath, path) or Read(GetFileIDFromPath, path .. ".blp")
+      if type(id) == "number" and id > 0 then
+        resolvedActionIcon[kind] = { file = id, crop = false }
+        return resolvedActionIcon[kind]
+      end
+    end
+  end
+  resolvedActionIcon[kind] = { file = def.fallback, crop = true }
+  return resolvedActionIcon[kind]
+end
+
+local actionKindNow, actionLockedNow
+local function UpdateActionIcon(kind, locked)
+  kind = ACTION_ICONS[kind] and kind or "herb"
+  locked = locked and true or false
+  if actionKindNow ~= kind then
+    actionKindNow = kind
+    local res = ResolveActionIcon(kind)
+    if res.atlas and art.actionIcon.SetAtlas then
+      art.actionIcon:SetAtlas(res.atlas, false)
+    else
+      art.actionIcon:SetTexCoord(0, 1, 0, 1)
+      art.actionIcon:SetTexture(res.file, "CLAMP", "CLAMP", "TRILINEAR")
+      if res.crop then
+        art.actionIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+      end
+    end
+  end
+  if actionLockedNow ~= locked then
+    actionLockedNow = locked
+    if art.actionIcon.SetDesaturated then
+      art.actionIcon:SetDesaturated(locked)
+    end
+    if locked then
+      art.actionIcon:SetVertexColor(0.65, 0.65, 0.65)
+    else
+      art.actionIcon:SetVertexColor(1, 1, 1)
+    end
+  end
+end
+
 -- The node's name under the light, in the game's skill colour.
 glow.label = glow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 glow.label:SetPoint("TOP", glow, "CENTER", 0, -30)
 glow.label:SetShadowOffset(1, -1)
 glow.label:SetShadowColor(0, 0, 0, 1)
 
-local LOOPS = { "breathe", "rippleAnim", "bandAnim", "shimmer", "shimmer2", "pulseA", "pulseB", "spin", "twinkle", "flickA", "flickB", "surge" }
+local LOOPS = { "breathe", "rippleAnim", "bandAnim", "shimmer", "shimmer2", "pulseA", "pulseB", "spin", "twinkle", "flickA", "flickB", "surge", "iconBob" }
 
 local function StopMotion()
   for _, key in ipairs(LOOPS) do art[key]:Stop() end
+  art.iconPop:Stop()
   art.flashAnim:Stop()
   art.burstAnim:Stop()
   art.flash:SetAlpha(0)
@@ -627,9 +739,10 @@ local SHOW = {
   ring = { band = true, ripple = true, pool = true, loops = { "bandAnim", "rippleAnim" } },
   embers = { halo = true, loops = { "breathe" } },
   aura = { auraA = true, auraB = true, halo = true, loops = { "flickA", "flickB", "surge", "breathe" } },
+  icon = { iconFrame = true, loops = { "iconBob" } },
 }
 
-local PARTS = { "halo", "pool", "ripple", "band", "beam", "core", "rays", "star", "auraA", "auraB", "pulse1", "pulse2" }
+local PARTS = { "halo", "pool", "ripple", "band", "beam", "core", "rays", "star", "auraA", "auraB", "pulse1", "pulse2", "iconFrame" }
 local function ApplyStyle()
   local style = Style()
   local show = SHOW[style]
@@ -671,8 +784,12 @@ local function ApplyStyle()
   for _, sp in ipairs(art.sparkles) do sp.tex:SetShown(sparkles) end
   art.pulse1:SetAlpha(0)
   art.pulse2:SetAlpha(0)
-  art.flash:Show()
-  art.burst:Show()
+  local isIcon = style == "icon"
+  art.flash:SetShown(not isIcon)
+  art.burst:SetShown(not isIcon)
+  if isIcon and not actionKindNow then
+    UpdateActionIcon(target.kind or "fish", target.low)
+  end
 end
 
 local function StartMotion()
@@ -704,6 +821,11 @@ end
 
 local function Flash()
   if not ns.db or not ns.db.glowFlash then return end
+  if Style() == "icon" then
+    art.iconPop:Stop()
+    art.iconPop:Play()
+    return
+  end
   art.flashAnim:Stop()
   art.burstAnim:Stop()
   art.flashAnim:Play()
@@ -956,6 +1078,7 @@ local function Show(plate, state)
     end
   end
   Tint(state == "locked" and GREY or COLOR[target.kind] or COLOR.herb)
+  UpdateActionIcon(target.kind, state == "locked")
   local alpha = (STATE_ALPHA[state] or 1) * (tonumber(db.glowBright) or 85) / 100
   if glow._alpha ~= alpha then
     glow:SetAlpha(alpha)
@@ -1026,6 +1149,7 @@ function ShowPool()
     target.name, target.low = poolAt.name, false
   end
   Tint(COLOR.fish)
+  UpdateActionIcon("fish", false)
   glow:SetAlpha((poolAt.dim and STATE_ALPHA.far or 1) * (tonumber(db.glowBright) or 85) / 100)
   if fresh then
     Look()
@@ -1081,7 +1205,7 @@ function ns.GlowChanged(key)
     target.plate = nil -- re-anchor (height, icon)
     RestoreIcon()
     glow:Hide()
-    if plate then Show(plate, ReadState()) end
+    if plate and target.kind then Show(plate, ReadState()) end
   end
   Refresh()
 end
@@ -1104,6 +1228,7 @@ function ns.GlowPreview(kind)
     if token ~= previewToken then return end
     local db = ns.db
     Tint(state == "locked" and GREY or COLOR[kind])
+    UpdateActionIcon(kind, state == "locked")
     glow:SetAlpha((STATE_ALPHA[state] or 1) * (tonumber(db.glowBright) or 85) / 100)
     if not glow:IsShown() then
       Look()
