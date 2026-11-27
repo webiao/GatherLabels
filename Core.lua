@@ -443,6 +443,94 @@ end
 -- it only counts for chests Gather Labels knows (Nodes.lua).
 local GATHER_SPELLS = { ["Herb Gathering"] = "herb", ["Mining"] = "ore", ["Opening"] = "treasure" }
 
+local function FormatToPattern(fmt)
+  if type(fmt) ~= "string" or fmt == "" then return nil end
+  local pat = fmt:gsub("%%%d*%$?s", "S"):gsub("%%%d*%$?d", "D")
+  pat = pat:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+  pat = pat:gsub("S", ".+"):gsub("D", "%%d+")
+  return "^" .. pat .. "$"
+end
+
+local REQUIREMENT_PATTERNS = {}
+local function BuildRequirementPatterns()
+  wipe(REQUIREMENT_PATTERNS)
+  local seen = {}
+  local function AddPattern(pat)
+    if pat and not seen[pat] then
+      seen[pat] = true
+      REQUIREMENT_PATTERNS[#REQUIREMENT_PATTERNS + 1] = pat
+    end
+  end
+  local globals = {
+    "ERR_USE_LOCKED_WITH_SPELL_KNOWN_SI",
+    "ERR_USE_LOCKED_WITH_SPELL_SI",
+    "ERR_USE_LOCKED_WITH_ITEM_S",
+    "SPELL_FAILED_MIN_SKILL",
+    "ERR_USE_LOCKED",
+  }
+  for _, key in ipairs(globals) do
+    AddPattern(FormatToPattern(_G[key]))
+  end
+  AddPattern("^Requires .+$")
+end
+
+local function IsGatherRequirementError(message)
+  if not Readable(message) or message == "" then return false end
+  for _, pat in ipairs(REQUIREMENT_PATTERNS) do
+    if message:find(pat) then return true end
+  end
+  return false
+end
+
+local function GatherCategory(name)
+  local category = name and ns.Category(name)
+  if category == "herb" or category == "ore" or category == "treasure" then
+    return category
+  end
+end
+
+local function FindInteractedNode()
+  if GameTooltip and GameTooltip:IsShown() and GameTooltip:GetOwner() ~= Minimap and not GameTooltip:GetUnit() then
+    local ok, text = pcall(ReadLeft1Text)
+    if ok and Readable(text) then
+      local name = ns.Canon(Clean(text))
+      local category = GatherCategory(name)
+      if category then return name, category end
+    end
+  end
+  if UnitName then
+    if UnitGUID then
+      local okGuid, guid = pcall(UnitGUID, "softinteract")
+      if okGuid and Readable(guid) and not guid:find("^GameObject") then
+        return nil
+      end
+    end
+    if UnitIsInInteractRange then
+      local okRange, inRange = pcall(UnitIsInInteractRange, "softinteract")
+      if okRange and inRange == false then return nil end
+    end
+    local okName, raw = pcall(UnitName, "softinteract")
+    if okName and Readable(raw) and raw ~= "" then
+      local name = ns.Canon(Clean(raw))
+      local category = GatherCategory(name)
+      if category then return name, category end
+    end
+  end
+end
+
+local function RecordNodeAtPlayer(name, category)
+  category = ns.NODES[name] and ns.NODES[name].category or category
+  if not ns.NODES[name] and not ns.db.learned[name] then
+    ns.db.learned[name] = category
+    if ns.OnSettingsChanged then ns.OnSettingsChanged() end
+  end
+  local continent, x, y = ns.PlayerWorldPos()
+  if continent then
+    AddSighting(continent, x, y, name, category, true, (IsIndoors and IsIndoors()) and true or false)
+  end
+  return continent, x, y
+end
+
 local pending, lastGather
 
 local events = CreateFrame("Frame")
@@ -450,6 +538,8 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("UNIT_SPELLCAST_SENT")
 events:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 events:RegisterEvent("LOOT_OPENED")
+events:RegisterEvent("UNIT_SPELLCAST_FAILED")
+events:RegisterEvent("UI_ERROR_MESSAGE")
 events:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
     if ... == ADDON_NAME then
@@ -459,6 +549,7 @@ events:SetScript("OnEvent", function(_, event, ...)
       if herb then GATHER_SPELLS[herb] = "herb" end
       if mining then GATHER_SPELLS[mining] = "ore" end
       if opening then GATHER_SPELLS[opening] = "treasure" end
+      BuildRequirementPatterns()
     end
   elseif event == "UNIT_SPELLCAST_SENT" then
     local unit, target, castGUID, spellID = ...
@@ -477,15 +568,9 @@ events:SetScript("OnEvent", function(_, event, ...)
     if unit ~= "player" or not pending then return end
     local ok, same = pcall(function() return castGUID == pending.guid end)
     if not ok or not same then return end
-    local name = pending.name
-    local category = ns.NODES[name] and ns.NODES[name].category or pending.category
+    local name, category = pending.name, pending.category
     pending = nil
-    if not ns.NODES[name] and not ns.db.learned[name] then
-      ns.db.learned[name] = category
-      if ns.OnSettingsChanged then ns.OnSettingsChanged() end
-    end
-    local continent, x, y = ns.PlayerWorldPos()
-    if continent then AddSighting(continent, x, y, name, category, true, (IsIndoors and IsIndoors()) and true or false) end
+    local continent, x, y = RecordNodeAtPlayer(name, category)
     lastGather = { name = name, time = GetTime() }
     if ns.OnGathered then ns.OnGathered(name, continent, x, y) end
   elseif event == "LOOT_OPENED" then
@@ -502,6 +587,23 @@ events:SetScript("OnEvent", function(_, event, ...)
           iconCache[name] = nil
         end
       end
+    end
+  elseif event == "UNIT_SPELLCAST_FAILED" then
+    local unit, castGUID = ...
+    if unit ~= "player" or not pending then return end
+    local ok, same = pcall(function() return castGUID == pending.guid end)
+    if not ok or not same then return end
+    local name, category = pending.name, pending.category
+    pending = nil
+    RecordNodeAtPlayer(name, category)
+  elseif event == "UI_ERROR_MESSAGE" then
+    if not ns.db then return end
+    local errorType, message = ...
+    if type(errorType) == "string" and message == nil then message = errorType end
+    if not IsGatherRequirementError(message) then return end
+    local name, category = FindInteractedNode()
+    if name and category then
+      RecordNodeAtPlayer(name, category)
     end
   end
 end)
