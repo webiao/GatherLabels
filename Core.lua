@@ -17,6 +17,7 @@ local DEFAULTS = {
   minimapAngle = 200,
   minimapHidden = false,
   scan = true,        -- WoW Forever: read the dots off the minimap
+  disableScan = false, -- completely disable minimap and hover scanning
   scanDetail = 2,     -- 1 lightest .. 3 most exact
   showSaved = false,  -- WoW Forever: also show saved spots with no dot now
   ringMode = false,   -- draw hollow rings on saved spots so tracking dots stay visible inside
@@ -399,18 +400,19 @@ end
 
 local lastText, lastX, lastY, elapsedTotal = nil, nil, nil, 0
 local watcher = CreateFrame("Frame")
-watcher:SetScript("OnUpdate", function(_, elapsed)
+
+local function WatcherOnUpdate(_, elapsed)
   elapsedTotal = elapsedTotal + elapsed
   if elapsedTotal < 0.1 then return end
   elapsedTotal = 0
-  if ns.db and ns.db.learnHover and GameTooltip:IsShown() then
+  if ns.db and ns.db.learnHover and not ns.db.disableScan and GameTooltip:IsShown() then
     pcall(LearnWorldHover)
   else
     lastWorldText = nil
   end
   -- While the scanner (Scan.lua) is actively sweeping, the tooltip can show the points it
   -- asks about rather than what is under the mouse, so wait until the sweep finishes.
-  if not ns.db or not ns.db.learnHover or (ns.ScannerSweeping and ns.ScannerSweeping())
+  if not ns.db or ns.db.disableScan or not ns.db.learnHover or (ns.ScannerSweeping and ns.ScannerSweeping())
       or not GameTooltip:IsShown()
       or GameTooltip:GetOwner() ~= Minimap then
     lastText, lastX, lastY = nil, nil, nil
@@ -428,7 +430,16 @@ watcher:SetScript("OnUpdate", function(_, elapsed)
   local continent, x, y = CursorWorldPos()
   if not continent then return end
   for _, name in ipairs(names) do AddSighting(continent, x, y, name, ns.Category(name), false) end
-end)
+end
+
+local function SyncWatcher()
+  if ns.db and ns.db.learnHover and not ns.db.disableScan then
+    watcher:SetScript("OnUpdate", WatcherOnUpdate)
+  else
+    watcher:SetScript("OnUpdate", nil)
+    lastText, lastX, lastY, lastWorldText, elapsedTotal = nil, nil, nil, nil, 0
+  end
+end
 
 ---------------------------------------------------------------------------
 -- Learning from gathering
@@ -454,6 +465,8 @@ events:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
     if ... == ADDON_NAME then
       InitDB()
+      SyncWatcher()
+      if ns.SyncScanner then ns.SyncScanner() end
       -- The game's own names for the gathering spells, for non-English clients.
       local herb, mining, opening = SpellName(2366), SpellName(2575), SpellName(3365)
       if herb then GATHER_SPELLS[herb] = "herb" end
@@ -512,7 +525,9 @@ end)
 
 function ns.Set(key, value)
   ns.db[key] = value
-  if key == "scan" and value and ns.ResetScanner then ns.ResetScanner() end
+  if (key == "scan" or key == "disableScan") and ns.db.scan and not ns.db.disableScan and ns.ResetScanner then ns.ResetScanner() end
+  if (key == "scan" or key == "disableScan" or key == "enabled") and ns.SyncScanner then ns.SyncScanner() end
+  if key == "learnHover" or key == "disableScan" then SyncWatcher() end
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
   if ns.RefreshPins then ns.RefreshPins() end
   if key == "tracker" and ns.TrackerSettingsChanged then ns.TrackerSettingsChanged() end

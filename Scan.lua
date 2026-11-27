@@ -33,7 +33,7 @@ function ns.ScannerAvailable()
 end
 
 function ns.ScannerRunning()
-  return available and not secretBlocked and ns.db and ns.db.scan and ns.db.enabled
+  return available and not secretBlocked and ns.db and not ns.db.disableScan and ns.db.scan and ns.db.enabled
 end
 
 function ns.ScannerSweeping()
@@ -48,6 +48,7 @@ function ns.ResetScanner()
   secretBlocked = false
   emptySweeps = 0
   rest = 0
+  if ns.SyncScanner then ns.SyncScanner() end
 end
 
 ---------------------------------------------------------------------------
@@ -271,7 +272,11 @@ local function UpdateTracking()
 end
 driver:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 driver:RegisterEvent("PLAYER_ENTERING_WORLD")
-driver:SetScript("OnEvent", UpdateTracking)
+driver:RegisterEvent("PLAYER_LOGIN")
+driver:SetScript("OnEvent", function()
+  UpdateTracking()
+  if ns.SyncScanner then ns.SyncScanner() end
+end)
 
 local sweep_x, sweep_y
 local function Finish(continent)
@@ -404,6 +409,7 @@ local function Step(elapsed)
       sweep = nil
       ns.liveDots = nil
       if ns.RefreshPins then ns.RefreshPins() end
+      if ns.SyncScanner then ns.SyncScanner() end
       return
     end
     sweep.index = sweep.index + 1
@@ -417,8 +423,22 @@ local function Step(elapsed)
   end
 end
 
-if available then
-  driver:SetScript("OnUpdate", function(_, elapsed) Step(elapsed) end)
+local function OnUpdate(_, elapsed)
+  Step(elapsed)
+end
+
+function ns.SyncScanner()
+  if not available then return end
+  if ns.ScannerRunning() then
+    driver:SetScript("OnUpdate", OnUpdate)
+  else
+    driver:SetScript("OnUpdate", nil)
+    if sweep then Abort() end
+    if ns.liveDots then
+      ns.liveDots = nil
+      if ns.RefreshPins then ns.RefreshPins() end
+    end
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -429,6 +449,10 @@ end
 function ns.ScanTest()
   if not available then
     ns.Print("This game version can't read the minimap dots, so Gather Labels uses saved spots here.")
+    return
+  end
+  if ns.db and ns.db.disableScan then
+    ns.Print('Scanning is disabled in Settings (untick "Disable all scanning" first).')
     return
   end
   ns.ResetScanner()

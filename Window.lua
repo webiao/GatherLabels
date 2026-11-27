@@ -137,6 +137,9 @@ local function BuildSettingsPage(page)
   -- WoW Forever only (Scan.lua).
   page.scanCheck = S.Check(page, "Read the dots by themselves", nil,
     function(on) ns.Set("scan", on) end, "Names every dot straight off the minimap, no hovering needed. WoW Forever only.")
+  page.disableScanCheck = S.Check(page, "Disable all scanning", nil,
+    function(on) ns.Set("disableScan", on) end,
+    "Completely turns off minimap dot scanning and hover tooltip scanning (zero background scanning). Close-up glow, session tracker and already saved spots still work.")
   page.savedCheck = S.Check(page, "Also show saved spots with no dot", nil,
     function(on) ns.Set("showSaved", on) end, "Spots you've found before show faded while nothing has spawned there.")
   page.ringModeCheck = S.Check(page, "Hollow rings for saved spots", nil,
@@ -156,7 +159,7 @@ local function BuildSettingsPage(page)
   page.hideAboveCheck:SetShown(ns.SkillApplies())
   page.hideGreyCheck:SetShown(ns.SkillApplies())
   local y = S.Stack({ page.enabledCheck, page.labelsCheck, page.hoverCheck, page.scanCheck,
-    page.savedCheck, page.ringModeCheck, page.hideAboveCheck, page.hideGreyCheck, page.minimapCheck }, 0, -20)
+    page.disableScanCheck, page.savedCheck, page.ringModeCheck, page.hideAboveCheck, page.hideGreyCheck, page.minimapCheck }, 0, -20)
 
   y = y - 6
   S.Header(page, "While gathering", 0, y, W)
@@ -614,6 +617,11 @@ function ns.OnSettingsChanged()
   page.minimapCheck:SetChecked(not db.minimapHidden)
   page.detail:SetShown(ns.ScannerAvailable())
   page.scanCheck:SetChecked(db.scan)
+  page.disableScanCheck:SetChecked(db.disableScan)
+  local scanAlpha = db.disableScan and 0.45 or 1
+  page.hoverCheck:SetAlpha(scanAlpha)
+  page.scanCheck:SetAlpha(scanAlpha)
+  page.detail:SetAlpha(scanAlpha)
   page.savedCheck:SetChecked(db.showSaved)
   page.ringModeCheck:SetChecked(db.ringMode)
   page.hideAboveCheck:SetChecked(db.hideAbove)
