@@ -141,8 +141,9 @@ local function BuildSettingsPage(page)
     function(on) ns.Set("showSaved", on) end, "Spots you've found before show faded while nothing has spawned there.")
   page.ringModeCheck = S.Check(page, "Hollow rings for saved spots", nil,
     function(on) ns.Set("ringMode", on) end, "Draws hollow rings instead of filled icons on saved spots so live yellow tracking dots stay visible inside.")
-  page.hideAboveCheck = S.Check(page, "Hide nodes my skill is too low for", nil,
-    function(on) ns.Set("hideAbove", on) end)
+  page.hideAboveCheck = S.Check(page, "Hide red nodes (skill too low)", nil,
+    function(on) ns.Set("hideAbove", on) end,
+    "Hides herbs and ore on the minimap that require a higher gathering skill than you have.")
   page.hideGreyCheck = S.Check(page, "Hide grey nodes (no skill-ups)", nil,
     function(on) ns.Set("hideGrey", on) end,
     "Hides herbs and ore on the minimap that no longer give gathering skill points.")
