@@ -16,6 +16,7 @@ Skill.lua
 Scan.lua
 Pins.lua
 Route.lua
+Map.lua
 Mark.lua
 Glow.lua
 Tracker.lua

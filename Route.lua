@@ -173,6 +173,9 @@ local function RouteLength(stops)
   return total
 end
 
+ns.OrderStops = Order
+ns.RouteLength = RouteLength
+
 local function PointArrowAtStop()
   local stop = route.stops[route.index]
   ns.SetTarget(stop.x, stop.y, stop.name, stop.cave)
@@ -212,12 +215,14 @@ function ns.StartRoute()
   PointArrowAtStop()
   ns.Print(string.format("Farming route: %d stops, about %d yards a lap. Follow the arrow; right-click it to stop.",
     #stops, RouteLength(stops)))
+  if ns.RefreshMap then ns.RefreshMap() end
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
 end
 
 function ns.StopRoute()
   route = nil
   ns.ClearTarget()
+  if ns.RefreshMap then ns.RefreshMap() end
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
 end
 
@@ -225,6 +230,7 @@ local function NextStop()
   route.index = route.index % #route.stops + 1
   route.missing = 0
   PointArrowAtStop()
+  if ns.RefreshMap then ns.RefreshMap() end
 end
 
 -- Forever: a near stop with no dot on the minimap has been picked already.

@@ -118,6 +118,7 @@ events:RegisterEvent("SKILL_LINES_CHANGED")
 events:SetScript("OnEvent", function()
   cacheTime = 0
   if ns.RefreshPins then ns.RefreshPins() end
+  if ns.RefreshMap then ns.RefreshMap() end
   if ns.ShineChanged then ns.ShineChanged() end
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
 end)

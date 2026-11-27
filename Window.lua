@@ -123,6 +123,7 @@ local TABS = {
   { label = "Fishing and Treasure", "fish", "treasure" },
   { label = "This Zone", zone = true },
   { label = "Glow", glow = true },
+  { label = "Map", map = true },
 }
 
 local function BuildSettingsPage(page)
@@ -338,6 +339,79 @@ local function BuildListPage(page, def)
   end
 end
 
+-- World Map overlay settings (Map.lua). All map display toggles default to off.
+local function BuildMapPage(page)
+  local W = 280
+  S.Header(page, "World map", 0, 0, W)
+  page.enabledCheck = S.Check(page, "Show tracked nodes on the world map", nil,
+    function(on) ns.Set("mapEnabled", on) end,
+    "Draws saved spots on the World Map using the nodes ticked in Herbs and Ore, Fishing and Treasure, and your skill filters in Settings.")
+  page.labelsCheck = S.Check(page, "Show names next to map icons", nil,
+    function(on) ns.Set("mapLabels", on) end,
+    "Puts the node's name next to each icon on the World Map. Hovering an icon always shows its full tooltip.")
+  page.ringsCheck = S.Check(page, "Hollow rings on the world map", nil,
+    function(on) ns.Set("mapRings", on) end,
+    "Draws hollow coloured rings instead of filled icons on the World Map.")
+  local y = S.Stack({ page.enabledCheck, page.labelsCheck, page.ringsCheck }, 0, -20)
+
+  y = y - 10
+  S.Header(page, "Gathering path on map", 0, y, W)
+  page.routeCheck = S.Check(page, "Show gathering route on the world map", nil,
+    function(on) ns.Set("mapRoute", on) end,
+    "Draws the active farming route loop on the World Map, highlighting the leg you are currently following.")
+  page.routeAlwaysCheck = S.Check(page, "Preview route in any zone (even when stopped)", nil,
+    function(on) ns.Set("mapRouteAlways", on) end,
+    "Computes and previews the shortest gathering loop for any zone you open on the World Map, even when no farming route is running.")
+  page.routeNumbersCheck = S.Check(page, "Show stop numbers on the route", nil,
+    function(on) ns.Set("mapRouteNumbers", on) end,
+    "Shows numbered badges (1, 2, 3...) along the gathering path on the World Map.")
+  y = S.Stack({ page.routeCheck, page.routeAlwaysCheck, page.routeNumbersCheck }, 0, y - 20)
+
+  y = y - 14
+  S.Header(page, "Tracked nodes", 0, y, W)
+  page.stats = S.Label(page, "", "GameFontHighlight")
+  page.stats:SetPoint("TOPLEFT", 0, y - 22)
+  page.stats:SetSpacing(3)
+  page.filterNote = S.Help(page,
+    "Which nodes appear on the World Map comes straight from your checkboxes in Herbs and Ore, Fishing and Treasure, and the red/grey skill filters in Settings. Click a pin on the map to point the arrow at it.", W)
+  page.filterNote:SetPoint("TOPLEFT", 0, y - 62)
+
+  S.Divider(page, W + 18, 0, 490)
+
+  local x, RW = W + 36, 250
+  S.Header(page, "Map appearance", x, 0, RW)
+  page.iconSize = S.Slider(page, "Map icon size", RW - 12, 10, 24, 1,
+    function(v) return tostring(v) end,
+    function(v) if ns.db.mapIconSize ~= v then ns.Set("mapIconSize", v) end end)
+  page.iconSize:SetPoint("TOPLEFT", x + 6, -46)
+
+  page.iconAlpha = S.Slider(page, "Map icon opacity", RW - 12, 30, 100, 5,
+    function(v) return v .. "%" end,
+    function(v) if ns.db.mapAlpha ~= v then ns.Set("mapAlpha", v) end end)
+  page.iconAlpha:SetPoint("TOPLEFT", x + 6, -104)
+
+  page.routeWidth = S.Slider(page, "Route line thickness", RW - 12, 1, 5, 1,
+    function(v) return v .. " px" end,
+    function(v) if ns.db.mapRouteWidth ~= v then ns.Set("mapRouteWidth", v) end end)
+  page.routeWidth:SetPoint("TOPLEFT", x + 6, -162)
+
+  page.routeAlpha = S.Slider(page, "Route line opacity", RW - 12, 20, 100, 5,
+    function(v) return v .. "%" end,
+    function(v) if ns.db.mapRouteAlpha ~= v then ns.Set("mapRouteAlpha", v) end end)
+  page.routeAlpha:SetPoint("TOPLEFT", x + 6, -220)
+
+  local openMap = S.Button(page, "Open World Map", 140, "World Map",
+    "Opens or closes the World Map so you can check how your pins and route look.")
+  openMap:SetPoint("TOPLEFT", x, -268)
+  openMap:SetScript("OnClick", function()
+    if ToggleWorldMap then ToggleWorldMap() end
+  end)
+
+  local legend = S.Help(page,
+    "Gold path: active farming route (brightest leg is next). Cyan path: route preview when no route is running.", RW)
+  legend:SetPoint("TOPLEFT", x, -306)
+end
+
 local selectedZoneMapID
 local sortedZoneIDs
 
@@ -550,7 +624,7 @@ end
 local function SelectTab(i)
   frame.tab = i
   for p, page in ipairs(frame.pages) do page:SetShown(p == i) end
-  if i == 1 or TABS[i].glow then
+  if i == 1 or TABS[i].glow or TABS[i].map then
     frame.topHelp:SetText("Every change is saved the moment you click it.")
   elseif TABS[i].zone then
     frame.topHelp:SetText("Herbs, ore and fish recorded for the zone (reference only).")
@@ -581,12 +655,14 @@ local function Build()
     if i == 1 then BuildSettingsPage(page)
     elseif def.zone then BuildZonePage(page)
     elseif def.glow then BuildGlowPage(page)
+    elseif def.map then BuildMapPage(page)
     else BuildListPage(page, def) end
   end
   frame.page = frame.pages[1]
   for i, def in ipairs(TABS) do
     if def.glow then frame.glowPage = frame.pages[i]
-    elseif def.zone then frame.zonePage = frame.pages[i]; frame.zoneTabIndex = i end
+    elseif def.zone then frame.zonePage = frame.pages[i]; frame.zoneTabIndex = i
+    elseif def.map then frame.mapPage = frame.pages[i]; frame.mapTabIndex = i end
   end
 
   local forget = S.Button(frame, "Forget all spots", 130, "Forget all spots",
@@ -676,6 +752,33 @@ function ns.OnSettingsChanged()
       g.note:SetText("While the glow is on, the game's own settings for clicking objects near you are switched on. They're put back when it's off, and when you log out.")
     end
   end
+  local m = frame.mapPage
+  if m then
+    m.enabledCheck:SetChecked(db.mapEnabled)
+    m.labelsCheck:SetChecked(db.mapLabels)
+    m.ringsCheck:SetChecked(db.mapRings)
+    m.routeCheck:SetChecked(db.mapRoute)
+    m.routeAlwaysCheck:SetChecked(db.mapRouteAlways)
+    m.routeNumbersCheck:SetChecked(db.mapRouteNumbers)
+    local pinAlpha = db.mapEnabled and 1 or 0.45
+    m.labelsCheck:SetAlpha(pinAlpha)
+    m.ringsCheck:SetAlpha(pinAlpha)
+    m.iconSize:SetAlpha(pinAlpha)
+    m.iconAlpha:SetAlpha(pinAlpha)
+    local routeAlpha = db.mapRoute and 1 or 0.45
+    m.routeAlwaysCheck:SetAlpha(routeAlpha)
+    m.routeNumbersCheck:SetAlpha(routeAlpha)
+    m.routeWidth:SetAlpha(routeAlpha)
+    m.routeAlpha:SetAlpha(routeAlpha)
+    m.iconSize:Sync(db.mapIconSize)
+    m.iconAlpha:Sync(db.mapAlpha)
+    m.routeWidth:Sync(db.mapRouteWidth)
+    m.routeAlpha:Sync(db.mapRouteAlpha)
+    local tracked, routeStops = 0, 0
+    if ns.MapZoneStats then tracked, routeStops = ns.MapZoneStats() end
+    m.stats:SetText(string.format("Tracked spots in this zone: |cffffffff%d|r\nActive route: |cffffffff%s|r",
+      tracked, routeStops > 0 and (routeStops .. " stops") or "off"))
+  end
 end
 
 function ns.ToggleSettings()
@@ -688,6 +791,12 @@ function ns.ShowZoneTab()
   selectedZoneMapID = nil
   frame:Show()
   if frame.zoneTabIndex then SelectTab(frame.zoneTabIndex) end
+end
+
+function ns.ShowMapTab()
+  if not frame then Build() end
+  frame:Show()
+  if frame.mapTabIndex then SelectTab(frame.mapTabIndex) end
 end
 
 local zoneEvents = CreateFrame("Frame")

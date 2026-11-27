@@ -44,6 +44,17 @@ local DEFAULTS = {
   glowHeight = -20,     -- pixels up/down from the game's spot for it
   glowBright = 85,      -- percent
   glowRange = 15,       -- yards: how far away a node starts to glow (dim until in reach)
+  -- World Map overlay (Map.lua) - all display toggles off by default
+  mapEnabled = false,
+  mapLabels = false,
+  mapRings = false,
+  mapRoute = false,
+  mapRouteAlways = false,
+  mapRouteNumbers = false,
+  mapIconSize = 14,
+  mapAlpha = 90,
+  mapRouteWidth = 2,
+  mapRouteAlpha = 75,
 }
 
 local PREFIX = ns.Skin.Prefix("Gather Labels", "Interface\\Icons\\INV_Misc_Flower_02")
@@ -520,12 +531,14 @@ function ns.Set(key, value)
   if (key == "autoShine" or key == "worldMark" or key == "shineRange" or key == "hideAbove" or key == "hideGrey") and ns.ShineChanged then ns.ShineChanged() end
   if (key == "shineRange" or key == "shineAnim") and ns.SparkleChanged then ns.SparkleChanged() end
   if key:find("^glow") and ns.GlowChanged then ns.GlowChanged(key) end
+  if (key:find("^map") or key == "hideAbove" or key == "hideGrey") and ns.RefreshMap then ns.RefreshMap() end
 end
 
 function ns.SetNameShown(name, on)
   ns.db.hidden[name] = (not on) or nil
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
   if ns.RefreshPins then ns.RefreshPins() end
+  if ns.RefreshMap then ns.RefreshMap() end
   if ns.ShineChanged then ns.ShineChanged() end
 end
 
@@ -533,6 +546,7 @@ function ns.SetCategoryShown(category, on)
   for _, name in ipairs(ns.NamesFor(category)) do ns.db.hidden[name] = (not on) or nil end
   if ns.OnSettingsChanged then ns.OnSettingsChanged() end
   if ns.RefreshPins then ns.RefreshPins() end
+  if ns.RefreshMap then ns.RefreshMap() end
   if ns.ShineChanged then ns.ShineChanged() end
 end
 
@@ -551,6 +565,8 @@ SlashCmdList.GATHERLABELS = function(msg)
     ns.StopRoute()
   elseif msg == "zone" then
     if ns.ShowZoneTab then ns.ShowZoneTab() end
+  elseif msg == "map" then
+    if ns.ShowMapTab then ns.ShowMapTab() end
   elseif msg == "shine" then
     ns.ToggleShine()
   elseif msg == "glow" then
